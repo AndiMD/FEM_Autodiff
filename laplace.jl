@@ -1,4 +1,4 @@
-using Ferrite, SparseArrays, ForwardDiff
+using Ferrite, SparseArrays, ForwardDiff, PureUMFPACK
 
 grid = generate_grid(Quadrilateral, (20, 20));
 
@@ -55,27 +55,28 @@ function assemble_element!(Ke::AbstractMatrix, fe::AbstractVector, cellvalues::C
 end
 
 function assemble_global(cellvalues::CellValues, dh::DofHandler, A, B)
-    # Allocate the element stiffness matrix and element force vector.
-    # Everything is allocated with the promoted type of A, B (e.g.
-    # ForwardDiff.Dual when differentiating) so that the assembler's
-    # matrix and vector element types match, even though K's numerical
-    # values never actually depend on A, B.
+    # K's numerical values never actually depend on A, B, so it is assembled
+    # as plain Float64 and factorized directly as a sparse matrix. Only fe /
+    # f_global carry the promoted type of A, B (e.g. ForwardDiff.Dual when
+    # differentiating).
     n_basefuncs = getnbasefunctions(cellvalues)
     T = promote_type(typeof(A), typeof(B))
-    Ke = zeros(T, n_basefuncs, n_basefuncs)
+    Ke = zeros(n_basefuncs, n_basefuncs)
     fe = zeros(T, n_basefuncs)
-    K = allocate_matrix(SparseMatrixCSC{T, Int}, dh)
+    K = allocate_matrix(dh)
     f_global = zeros(T, ndofs(dh))
-    # Create an assembler
-    assembler = start_assemble(K, f_global)
+    # Create an assembler (matrix-only; f_global is assembled separately
+    # since its element type may differ from K's)
+    assembler = start_assemble(K)
     # Loop over all cells
     for cell in CellIterator(dh)
         # Reinitialize cellvalues for this cell
         reinit!(cellvalues, cell)
         # Compute element contribution
         assemble_element!(Ke, fe, cellvalues, getcoordinates(cell), A, B)
-        # Assemble Ke and fe into K and f
-        assemble!(assembler, celldofs(cell), Ke, fe)
+        # Assemble Ke into K and fe into f_global
+        assemble!(assembler, celldofs(cell), Ke)
+        assemble!(f_global, celldofs(cell), fe)
     end
     return K, f_global
 end
@@ -83,10 +84,12 @@ end
 function solve_laplace(A, B)
     K, f_global = assemble_global(cellvalues, dh, A, B)
     apply!(K, f_global, ch)
-    # K stays Float64 (it doesn't depend on A, B); converting to a dense
-    # matrix lets `\` fall back to a generic solve that supports Dual
-    # numbers, so this stays differentiable with ForwardDiff.
-    u = Matrix(K) \ f_global
+    # PureUMFPACK's sparse LU solve is implemented as plain generic-arithmetic
+    # loops (no C/BLAS calls requiring Float64), so `F \ f_global` stays
+    # differentiable even when f_global holds ForwardDiff.Dual entries -
+    # unlike SparseArrays' UMFPACK wrapper, which requires Float64 throughout.
+    F = splu(K)
+    u = F \ f_global
     return u
 end
 

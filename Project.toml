@@ -1,5 +1,8 @@
 [deps]
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
 Ferrite = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+PureUMFPACK = "b7e1f0a2-3c4d-4e5f-9a0b-1c2d3e4f5a6b"
